@@ -13,6 +13,7 @@
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = [
           pkgs.go
+          pkgs.nodejs
           pkgs.gopls  # Go language server
           pkgs.golangci-lint # Linter
           pkgs.delve  # Debugger
