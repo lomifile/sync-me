@@ -22,7 +22,7 @@ type Node struct {
 	Files []Files `json:"files"`
 	Size  int64   `json:"size"`
 	Child []Node  `json:"children"`
-	Root  bool
+	Root  bool    `json:"root"`
 }
 
 func NewNode(filePath string, name string, structure ...any) *Node {

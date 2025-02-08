@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 
 	"github.com/google/uuid"
@@ -9,14 +11,29 @@ import (
 	"github.com/lomifile/sync-me/tree"
 )
 
+var rootPath = "../../notes/"
+
+func CheckCacheFile() (bool, error) {
+	_, err := os.Stat(rootPath + ".cache")
+	if err == nil {
+		return true, nil
+	}
+
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+
+	return false, err
+}
+
 func main() {
 	var root *tree.Node
-	if _, err := os.Stat("./cache.json"); err != nil {
-		bytes, err := os.ReadFile("./cache.json")
+	cache, _ := CheckCacheFile()
+	if cache {
+		bytes, err := os.ReadFile(rootPath + ".cache/cache.json")
 		if err != nil {
 			panic(err)
 		}
-
 		json.Unmarshal(bytes, root)
 	} else {
 
@@ -37,8 +54,13 @@ func main() {
 			}
 		}
 
+		err := os.MkdirAll(rootPath+".cache", 0750)
+		if err != nil {
+			panic(err)
+		}
+
 		bytes := tree.ExportTree(root)
-		file, err := os.Create("./cache.json")
+		file, err := os.Create(rootPath + ".cache/cache.json")
 		if err != nil {
 			panic(err)
 		}
