@@ -16,7 +16,6 @@ type Files struct {
 }
 
 type Node struct {
-	Id    string  `json:"id"`
 	Name  string  `json:"name"`
 	Path  string  `json:"path"`
 	Files []Files `json:"files"`
@@ -25,10 +24,30 @@ type Node struct {
 	Root  bool    `json:"root"`
 }
 
+func BuildFileTree(filePath string, name string, structure ...any) *Node {
+	root := NewNode(filePath, name, true)
+
+	files, _ := os.ReadDir(filePath)
+
+	for _, file := range files {
+		if file.IsDir() {
+			Insert(filePath+file.Name(), uuid.NewString(), file, root)
+		} else {
+			info, _ := file.Info()
+			root.Files = append(root.Files, Files{
+				Name:     file.Name(),
+				ByteSize: info.Size(),
+				Path:     root.Path,
+			})
+		}
+	}
+
+	return root
+}
+
 func NewNode(filePath string, name string, structure ...any) *Node {
 	isRoot := structure[0]
 	node := &Node{
-		Id:    uuid.NewString(),
 		Name:  name,
 		Path:  filePath,
 		Files: make([]Files, 0),
