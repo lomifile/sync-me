@@ -22,22 +22,25 @@ type Node struct {
 	Files []Files `json:"files"`
 	Size  int64   `json:"size"`
 	Child []Node  `json:"children"`
+	Root  bool
 }
 
 func NewNode(filePath string, name string, structure ...any) *Node {
+	isRoot := structure[0]
 	node := &Node{
 		Id:    uuid.NewString(),
 		Name:  name,
 		Path:  filePath,
 		Files: make([]Files, 0),
 		Child: make([]Node, 0),
+		Root:  isRoot.(bool),
 	}
 
 	return node
 }
 
 func Insert(path string, id string, file os.DirEntry, node *Node) {
-	newNode := NewNode(path, file.Name())
+	newNode := NewNode(path, file.Name(), false)
 	BuildStructure(path, newNode)
 	node.Child = append(node.Child, *newNode)
 }
