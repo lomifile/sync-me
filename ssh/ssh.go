@@ -1,30 +1,77 @@
 package ssh
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 
+	"github.com/lomifile/sync-me/config"
 	"github.com/lomifile/sync-me/tree"
 	"github.com/pkg/sftp"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/crypto/ssh"
 )
 
+const CHUNK_SIZE = 4096
+
 var PATH_PREFIX = "./"
 
-func NewClient() *sftp.Client {
-	config := &ssh.ClientConfig{
-		User: "butters",
+func RunComparisonOnFiles(src, dest string, client *sftp.Client) bool {
+	f1, err := os.Open(src)
+	if err != nil {
+		panic(err)
+	}
+	defer f1.Close()
+
+	f2, err := client.Open(dest)
+	if err != nil {
+		panic(err)
+	}
+	defer f2.Close()
+
+	buf1 := make([]byte, CHUNK_SIZE)
+	buf2 := make([]byte, CHUNK_SIZE)
+
+	for {
+		n1, err1 := io.ReadFull(f1, buf1)
+		n2, err2 := io.ReadFull(f2, buf2)
+
+		if n1 != n2 {
+			return false
+		}
+
+		if !bytes.Equal(buf1[:n1], buf2[:n2]) {
+			return false
+		}
+
+		if err1 == io.EOF && err2 == io.EOF {
+			return true
+		}
+
+		if err1 == io.EOF || err2 == io.EOF {
+			return false
+		}
+
+		if err1 != nil && err1 != io.ErrUnexpectedEOF {
+			panic(err1)
+		}
+		if err2 != nil && err2 != io.ErrUnexpectedEOF {
+			panic(err2)
+		}
+	}
+}
+
+func NewClient(config *config.Config) *sftp.Client {
+	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%s", config.Host, config.Port), &ssh.ClientConfig{
+		User: config.User,
 		Auth: []ssh.AuthMethod{
-			ssh.Password("00259641"),
+			ssh.Password(config.Password),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-
-	client, err := ssh.Dial("tcp", "butters.local:22", config)
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -57,6 +104,14 @@ func CreateDir(path string, client *sftp.Client) {
 	}
 }
 
+func BuildFilePath(tree *tree.Node, file *tree.Files) string {
+	if tree.Root {
+		return PATH_PREFIX + file.Name
+	} else {
+		return PATH_PREFIX + tree.Name + "/" + file.Name
+	}
+}
+
 func HandleSendData(client *sftp.Client, tree *tree.Node) {
 	if tree.Root {
 		exists, err := Exists(PATH_PREFIX+tree.Name, client)
@@ -75,27 +130,32 @@ func HandleSendData(client *sftp.Client, tree *tree.Node) {
 	}
 
 	for _, file := range tree.Files {
-		exists, err := Exists(PATH_PREFIX+tree.Name+"/"+file.Name, client)
+		path := BuildFilePath(tree, &file)
+
+		exists, err := Exists(path, client)
 		if err != nil {
 			panic(err)
 		}
 
 		if !exists {
-			fmt.Println("-- [Create]: Item: ", PATH_PREFIX+tree.Name+"/"+file.Name, "doesn't exists")
-			SendFileOverSsh(file, tree, client)
-		} else {
-
-			current, err := os.Lstat(file.Path)
+			fmt.Println("-- [Create]: Item: ", path, "doesn't exists")
+			err := SendFileOverSsh(file, path, client)
 			if err != nil {
 				panic(err)
 			}
 
-			if file.ByteSize != current.Size() {
-				fmt.Println("-- [UPDATE]: Item: ", PATH_PREFIX+tree.Name+"/"+file.Name, "has changed size from", file.ByteSize, "to", current.Size(), "updating data on server")
+		} else {
+			isSame := RunComparisonOnFiles(file.Path, path, client)
+			if !isSame {
+				fmt.Println("-- [UPDATE]: Item: ", path, "updating data on server")
+				err := SendFileOverSsh(file, path, client)
+				if err != nil {
+					panic(err)
+				}
 			}
-
-			fmt.Println("-- [SKIP]: Item: ", PATH_PREFIX+tree.Name+"/"+file.Name, "already exists")
 		}
+
+		fmt.Println("-- [SKIP]: Item: ", path, "already exists")
 	}
 
 	for _, child := range tree.Child {
@@ -115,42 +175,36 @@ func HandleSendData(client *sftp.Client, tree *tree.Node) {
 	}
 }
 
-func SendFileOverSsh(file tree.Files, node *tree.Node, client *sftp.Client) error {
-	// Open source file
+func SendFileOverSsh(file tree.Files, path string, client *sftp.Client) error {
 	src, err := os.Open(file.Path)
 	if err != nil {
 		return fmt.Errorf("unable to open source file: %v", err)
 	}
 	defer src.Close()
 
-	// Create destination file
-	dst, err := client.Create(PATH_PREFIX + node.Name + "/" + file.Name)
+	dst, err := client.Create(path)
 	if err != nil {
 		return fmt.Errorf("unable to create destination file: %v", err)
 	}
 	defer dst.Close()
 
-	// Get the file size for progress bar
 	fileInfo, err := src.Stat()
 	if err != nil {
 		return fmt.Errorf("unable to get file info: %v", err)
 	}
 
-	// Create the progress bar
 	bar := progressbar.NewOptions64(fileInfo.Size(),
-		progressbar.OptionSetDescription(fmt.Sprintf("Sending: %s", PATH_PREFIX+node.Name+"/"+file.Name)),
+		progressbar.OptionSetDescription(fmt.Sprintf("-- [Send]: %s", path)),
 		progressbar.OptionSetWriter(os.Stdout),
 		progressbar.OptionSetWidth(50),
 		progressbar.OptionSetPredictTime(false),
 	)
 
-	// Create a multi-writer to send data to both destination and progress bar
 	_, err = io.Copy(io.MultiWriter(dst, bar), src)
 	if err != nil {
 		return fmt.Errorf("error while copying file: %v", err)
 	}
 
-	// After transfer is complete, ensure the progress bar is completed
 	bar.Finish()
 
 	fmt.Println()

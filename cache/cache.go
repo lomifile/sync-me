@@ -25,7 +25,7 @@ func BuildNewCache(localSrc, src, rootName string, client *sftp.Client) *tree.No
 			root.Files = append(root.Files, tree.Files{
 				Name:     file.Name(),
 				ByteSize: info.Size(),
-				Path:     root.Path,
+				Path:     root.Path + info.Name(),
 			})
 		}
 	}

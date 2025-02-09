@@ -37,7 +37,7 @@ func BuildFileTree(filePath string, name string, structure ...any) *Node {
 			root.Files = append(root.Files, Files{
 				Name:     file.Name(),
 				ByteSize: info.Size(),
-				Path:     root.Path,
+				Path:     filePath + info.Name(),
 			})
 		}
 	}

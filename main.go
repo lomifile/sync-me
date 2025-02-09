@@ -5,34 +5,34 @@ import (
 	"reflect"
 
 	"github.com/lomifile/sync-me/cache"
+	"github.com/lomifile/sync-me/config"
 	"github.com/lomifile/sync-me/ssh"
 	"github.com/lomifile/sync-me/tree"
 )
 
-var rootPath = "../../notes/"
-
 func main() {
+	config := config.LoadConfig("./config.json")
 	var root *tree.Node
-	client := ssh.NewClient()
+	client := ssh.NewClient(config)
 	defer client.Close()
-	cacheFile, _ := cache.CheckCacheFile("./notes", client)
+	cacheFile, _ := cache.CheckCacheFile(config.ReceiverFilePath, client)
 	if cacheFile {
 		fmt.Println("-- Loading cache")
-		root = cache.LoadCacheFile("./notes", client)
+		root = cache.LoadCacheFile(config.ReceiverFilePath, client)
 
 		fmt.Println("-- Loading local file tree")
-		fileTree := tree.BuildFileTree(rootPath, "notes", true)
+		fileTree := tree.BuildFileTree(config.SyncFilePath, config.RootName, true)
 
 		if reflect.DeepEqual(root, fileTree) {
 			fmt.Println("-- No file tree to sync")
 			return
 		} else {
 			root = fileTree
-			cache.UpdateCache(root, "./notes", client)
+			cache.UpdateCache(root, config.ReceiverFilePath, client)
 		}
 	} else {
 		fmt.Println("-- Building new cache")
-		root = cache.BuildNewCache("../../notes/", "./notes", "notes", client)
+		root = cache.BuildNewCache(config.SyncFilePath, config.ReceiverFilePath, config.RootName, client)
 	}
 
 	ssh.HandleSendData(client, root)
